@@ -20,7 +20,7 @@ This project is extracted from the `van_model` add-on card implementation, but i
 3. Add the Lovelace resource:
 
 ```yaml
-url: /hacsfiles/van_power/dist/van-power-card.js
+url: /local/community/van-power--home-assistant/van-power-card.js
 type: module
 ```
 
