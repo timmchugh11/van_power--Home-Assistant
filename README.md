@@ -2,7 +2,7 @@
 
 Standalone HACS-compatible Home Assistant custom card that renders the 3D van power model directly in Lovelace.
 
-This project is extracted from the `van_model` add-on card implementation, but it does not depend on the add-on UI or ingress. The card reads Home Assistant entity states directly from Lovelace and renders the 3D scene entirely inside the custom card.
+The card reads Home Assistant entity states directly from Lovelace and renders the 3D scene entirely inside the custom card.
 
 ## Features
 
@@ -17,12 +17,6 @@ This project is extracted from the `van_model` add-on card implementation, but i
 
 1. Add this repository as a custom HACS repository of type `Dashboard`.
 2. Install `Van Power`.
-3. Add the Lovelace resource:
-
-```yaml
-url: /local/community/van-power--home-assistant/van-power-card.js
-type: module
-```
 
 ### Manual
 
@@ -33,7 +27,7 @@ url: /local/van_power/dist/van-power-card.js
 type: module
 ```
 
-The distributable file is the bundled build at `dist/van-power-card.js`.
+The distributable file is the bundled build at `van-power-card.js`.
 
 ## Example Card
 
