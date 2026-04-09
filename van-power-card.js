@@ -175,5 +175,5 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'van-power-card',
   name: 'Van Power Card',
-  description: 'Standalone 3D van power dashboard card',
+  description: '3D van power dashboard card',
 });

@@ -20,7 +20,7 @@ This project is extracted from the `van_model` add-on card implementation, but i
 3. Add the Lovelace resource:
 
 ```yaml
-url: /hacsfiles/van_power/van-power-card.js
+url: /hacsfiles/van_power/dist/van-power-card.js
 type: module
 ```
 
@@ -29,9 +29,11 @@ type: module
 Copy the contents of this folder into your Home Assistant `www` directory, then add:
 
 ```yaml
-url: /local/van_power/van-power-card.js
+url: /local/van_power/dist/van-power-card.js
 type: module
 ```
+
+The distributable file is the bundled build at `dist/van-power-card.js`.
 
 ## Example Card
 
