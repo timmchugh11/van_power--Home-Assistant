@@ -32289,6 +32289,7 @@ function createVanScene(container, options = {}) {
   const scene = new Scene();
   const camera = new PerspectiveCamera(34, 1, 0.1, 100);
   const loader = new GLTFLoader();
+  const canvas = renderer.domElement;
   let destroyed = false;
   const rootGroup = new Group();
   const modelGroup = new Group();
@@ -32297,14 +32298,19 @@ function createVanScene(container, options = {}) {
   let targetRotationY = rotationY;
   let targetPitch = options.initialPitch ?? 0.08;
   let pitch = targetPitch;
-  let radius = 11;
+  let radius = options.initialRadius ?? 11;
+  const minRadius = options.minRadius ?? 7;
+  const maxRadius = options.maxRadius ?? 18;
   let lookAtY = options.lookAtY ?? 0.1;
   let labelsSpinWithModel = Boolean(options.labelsSpinWithModel);
   let frameId = 0;
-  let lastFrameTime = performance.now();
+  let pointerId = null;
   let pointerDown = false;
   let lastX = 0;
   let lastY = 0;
+  let yawVel = 0;
+  let baseYawVel = (options.autoRotateSpeed ?? 0.2) / 60;
+  let velHistory = [];
   let modelResource = null;
   const labelEntries = /* @__PURE__ */ new Map();
   const labelSpecs = options.labelSpecs || {
@@ -32316,7 +32322,7 @@ function createVanScene(container, options = {}) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = SRGBColorSpace;
   container.innerHTML = "";
-  container.appendChild(renderer.domElement);
+  container.appendChild(canvas);
   scene.add(rootGroup);
   scene.add(labelGroup);
   rootGroup.add(modelGroup);
@@ -32476,44 +32482,83 @@ function createVanScene(container, options = {}) {
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
   }
+  function wrapAngle(angle) {
+    if (angle > Math.PI) return angle - Math.PI * 2;
+    if (angle < -Math.PI) return angle + Math.PI * 2;
+    return angle;
+  }
   function onPointerDown(event) {
     if (!options.interactive) return;
     pointerDown = true;
+    pointerId = event.pointerId;
     lastX = event.clientX;
     lastY = event.clientY;
+    velHistory = [];
     container.classList.add("is-dragging");
+    canvas.setPointerCapture(event.pointerId);
   }
   function onPointerMove(event) {
-    if (!pointerDown) return;
-    const dx = event.clientX - lastX;
+    if (!pointerDown || event.pointerId !== pointerId) return;
+    const dx = (event.clientX - lastX) * 8e-3;
     const dy = event.clientY - lastY;
     lastX = event.clientX;
     lastY = event.clientY;
-    targetRotationY -= dx * 8e-3;
+    targetRotationY -= dx;
+    yawVel = -dx;
+    velHistory.push(-dx);
+    if (velHistory.length > 5) velHistory.shift();
     targetPitch = Math.max(-0.18, Math.min(0.32, targetPitch + dy * 3e-3));
   }
-  function onPointerUp() {
+  function onPointerUp(event) {
+    if (event && pointerId != null && event.pointerId !== pointerId) return;
     pointerDown = false;
+    if (canvas.hasPointerCapture(event?.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    const flick = velHistory.length ? velHistory.reduce((sum, value) => sum + value, 0) / velHistory.length : 0;
+    yawVel = flick;
+    if (Math.abs(flick) > 1e-4) {
+      const speed = Math.abs(baseYawVel);
+      baseYawVel = flick > 0 ? speed : -speed;
+    }
+    pointerId = null;
     container.classList.remove("is-dragging");
   }
-  container.addEventListener("pointerdown", onPointerDown);
-  window.addEventListener("pointermove", onPointerMove);
-  window.addEventListener("pointerup", onPointerUp);
-  window.addEventListener("pointercancel", onPointerUp);
+  function onPointerLeave(event) {
+    velHistory = [];
+    onPointerUp(event);
+  }
+  function onWheel(event) {
+    if (!options.interactive) return;
+    event.preventDefault();
+    const delta = event.deltaY > 0 ? 1.1 : 1 / 1.1;
+    radius = Math.max(minRadius, Math.min(maxRadius, radius * delta));
+  }
+  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerup", onPointerUp);
+  canvas.addEventListener("pointercancel", onPointerUp);
+  canvas.addEventListener("pointerleave", onPointerLeave);
+  canvas.addEventListener("wheel", onWheel, { passive: false });
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(container);
   resize();
   function render() {
     if (destroyed) return;
     frameId = requestAnimationFrame(render);
-    const now = performance.now();
-    const delta = Math.min((now - lastFrameTime) / 1e3, 0.05);
-    lastFrameTime = now;
     if (!pointerDown && options.autoRotate !== false) {
-      targetRotationY += delta * (options.autoRotateSpeed ?? 0.2);
+      yawVel *= 0.92;
+      targetRotationY += yawVel + baseYawVel;
+      targetRotationY = wrapAngle(targetRotationY);
     }
-    rotationY += (targetRotationY - rotationY) * 0.08;
-    pitch += (targetPitch - pitch) * 0.08;
+    if (pointerDown) {
+      rotationY = wrapAngle(targetRotationY);
+      pitch = targetPitch;
+    } else {
+      rotationY += (targetRotationY - rotationY) * 0.08;
+      rotationY = wrapAngle(rotationY);
+      pitch += (targetPitch - pitch) * 0.08;
+    }
     updateLabelPositions();
     updateCamera();
     renderer.render(scene, camera);
@@ -32535,10 +32580,12 @@ function createVanScene(container, options = {}) {
       cancelAnimationFrame(frameId);
       modelResource?.revoke?.();
       resizeObserver.disconnect();
-      container.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointercancel", onPointerUp);
+      canvas.removeEventListener("pointerleave", onPointerLeave);
+      canvas.removeEventListener("wheel", onWheel);
       renderer.dispose();
       container.innerHTML = "";
     }
