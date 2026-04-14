@@ -32308,10 +32308,10 @@ function createVanScene(container, options = {}) {
   let modelResource = null;
   const labelEntries = /* @__PURE__ */ new Map();
   const labelSpecs = options.labelSpecs || {
-    solar: { angle: -2.72, radius: 3.55, y: 1.15, scale: 1.95, title: "SOLAR" },
-    grid: { angle: -0.78, radius: 3.45, y: 1.15, scale: 1.95, title: "HOOKUP" },
-    alternator: { angle: 2.45, radius: 3.1, y: 1.15, scale: 1.95, title: "ALTERNATOR" },
-    battery: { angle: 0.62, radius: 2.85, y: 1.15, scale: 2.1, title: "BATTERY" }
+    grid: { angle: -2.72, radius: 3.55, y: -0.22, scale: 1.45, title: "HOOKUP" },
+    battery: { angle: -0.78, radius: 3.45, y: -0.22, scale: 1.45, title: "BATTERY" },
+    alternator: { angle: 2.45, radius: 3.1, y: -0.22, scale: 1.45, title: "ALTERNATOR" },
+    solar: { angle: 0.62, radius: 2.85, y: -0.22, scale: 1.55, title: "SOLAR" }
   };
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = SRGBColorSpace;
@@ -32320,16 +32320,16 @@ function createVanScene(container, options = {}) {
   scene.add(rootGroup);
   scene.add(labelGroup);
   rootGroup.add(modelGroup);
-  scene.add(new AmbientLight(16777215, 1.8));
-  const keyLight = new DirectionalLight(16777215, 2.6);
-  keyLight.position.set(8, 10, 10);
-  scene.add(keyLight);
-  const fillLight = new DirectionalLight(8239359, 1.2);
-  fillLight.position.set(-8, 4, -10);
-  scene.add(fillLight);
-  const rimLight = new DirectionalLight(16769470, 1.6);
-  rimLight.position.set(0, 7, -12);
-  scene.add(rimLight);
+  scene.add(new AmbientLight(16777215, 2.2));
+  const frontLight = new DirectionalLight(16777215, 1.6);
+  frontLight.position.set(8, 9, 10);
+  scene.add(frontLight);
+  const rearLight = new DirectionalLight(16777215, 1.3);
+  rearLight.position.set(-8, 7, -10);
+  scene.add(rearLight);
+  const sideLight = new DirectionalLight(16777215, 0.9);
+  sideLight.position.set(0, 6, -12);
+  scene.add(sideLight);
   function createLabelEntry(name, spec) {
     const canvas = document.createElement("canvas");
     canvas.width = 512;
@@ -32385,8 +32385,8 @@ function createVanScene(container, options = {}) {
     return labelEntries.get(name) || createLabelEntry(name, labelSpecs[name] || {
       angle: 0,
       radius: 3,
-      y: 1.2,
-      scale: 1.95,
+      y: 0.22,
+      scale: 1.45,
       title: name.toUpperCase()
     });
   }
@@ -32568,6 +32568,10 @@ var VanPowerCard = class extends HTMLElement {
     this._config = { ...DEFAULT_CONFIG };
     this._scene = null;
   }
+  connectedCallback() {
+    this.render();
+    this.update();
+  }
   setConfig(config) {
     this._config = { ...DEFAULT_CONFIG, ...config || {} };
     if (!this.shadowRoot.innerHTML) {
@@ -32586,6 +32590,7 @@ var VanPowerCard = class extends HTMLElement {
   }
   disconnectedCallback() {
     this._scene?.destroy();
+    this._scene = null;
   }
   lookup(entityId) {
     return this._hass?.states?.[entityId];
@@ -32634,59 +32639,61 @@ var VanPowerCard = class extends HTMLElement {
     };
   }
   render() {
-    this.shadowRoot.innerHTML = `
-      <style>
-        *{box-sizing:border-box}
-        :host{
-          display:block;
-          height:100%;
-          min-height:100%;
-        }
-        ha-card{
-          height:100%;
-          min-height:calc(100vh - 32px);
-          display:flex;
-          flex-direction:column;
-          overflow:hidden;
-          border-radius:20px;
-          background:transparent;
-          box-shadow:none;
-          color:#f5f7fa;
-        }
-        .wrap{
-          padding:0;
-          flex:1;
-          display:flex;
-          min-height:0;
-        }
-        .stage{
-          position:relative;
-          flex:1;
-          min-height:620px;
-          height:100%;
-          width:100%;
-          border:none;
-          border-radius:18px;
-          overflow:hidden;
-          background:transparent;
-        }
-        .canvas{position:absolute;inset:0;touch-action:none}
-        .canvas canvas{width:100%;height:100%;display:block}
-        .overlay{display:none}
-        @media (max-width: 900px){
-          ha-card{min-height:70vh}
-          .stage{min-height:540px}
-        }
-      </style>
-      <ha-card>
-        <div class="wrap">
-          <div class="stage">
-            <div class="canvas" id="scene"></div>
-            <div class="overlay"></div>
+    if (!this.shadowRoot.innerHTML) {
+      this.shadowRoot.innerHTML = `
+        <style>
+          *{box-sizing:border-box}
+          :host{
+            display:block;
+            height:100%;
+            min-height:100%;
+          }
+          ha-card{
+            height:100%;
+            min-height:calc(100vh - 32px);
+            display:flex;
+            flex-direction:column;
+            overflow:hidden;
+            border-radius:20px;
+            background:transparent;
+            box-shadow:none;
+            color:#f5f7fa;
+          }
+          .wrap{
+            padding:0;
+            flex:1;
+            display:flex;
+            min-height:0;
+          }
+          .stage{
+            position:relative;
+            flex:1;
+            min-height:620px;
+            height:100%;
+            width:100%;
+            border:none;
+            border-radius:18px;
+            overflow:hidden;
+            background:transparent;
+          }
+          .canvas{position:absolute;inset:0;touch-action:none}
+          .canvas canvas{width:100%;height:100%;display:block}
+          .overlay{display:none}
+          @media (max-width: 900px){
+            ha-card{min-height:70vh}
+            .stage{min-height:540px}
+          }
+        </style>
+        <ha-card>
+          <div class="wrap">
+            <div class="stage">
+              <div class="canvas" id="scene"></div>
+              <div class="overlay"></div>
+            </div>
           </div>
-        </div>
-      </ha-card>
-    `;
+        </ha-card>
+      `;
+    }
     if (!this._scene) {
       const modelUrl = new URL("./van.glb", import.meta.url).toString();
       this._scene = createVanScene(this.shadowRoot.getElementById("scene"), {
@@ -32710,6 +32717,9 @@ window.customCards.push({
   name: "Van Power Card",
   description: "3D van power dashboard card"
 });
+export {
+  createVanScene
+};
 /**
  * @license
  * Copyright 2010-2026 Three.js Authors
