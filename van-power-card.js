@@ -47164,15 +47164,21 @@ var VanPowerCard = class extends HTMLElement {
       clearInterval(this._pixelShiftTimer);
       this._pixelShiftTimer = null;
     }
-    const updatePadding = () => {
-      const top = Math.floor(Math.random() * 7) * 5;
-      const bottom = 60 - top;
-      const left = Math.floor(Math.random() * 7) * 5;
-      const right = 60 - left;
-      card.style.padding = `${top}px ${right}px ${bottom}px ${left}px`;
+    const overscan = 30;
+    const step = 5;
+    card.style.position = "relative";
+    card.style.width = `calc(100% + ${overscan * 2}px)`;
+    card.style.height = `calc(100% + ${overscan * 2}px)`;
+    card.style.left = `${-overscan}px`;
+    card.style.top = `${-overscan}px`;
+    card.style.willChange = "transform";
+    const updateShift = () => {
+      const x = Math.round((Math.random() * 2 - 1) * (overscan / step)) * step;
+      const y = Math.round((Math.random() * 2 - 1) * (overscan / step)) * step;
+      card.style.transform = `translate(${x}px, ${y}px)`;
     };
-    updatePadding();
-    this._pixelShiftTimer = setInterval(updatePadding, 3e4);
+    updateShift();
+    this._pixelShiftTimer = setInterval(updateShift, 3e4);
   }
   stopPixelShift() {
     if (this._pixelShiftTimer) {
@@ -47181,7 +47187,13 @@ var VanPowerCard = class extends HTMLElement {
     }
     const card = this.shadowRoot?.getElementById("dynamic-card");
     if (card) {
-      card.style.removeProperty("padding");
+      card.style.removeProperty("position");
+      card.style.removeProperty("width");
+      card.style.removeProperty("height");
+      card.style.removeProperty("left");
+      card.style.removeProperty("top");
+      card.style.removeProperty("transform");
+      card.style.removeProperty("will-change");
     }
   }
   activateFullscreenMode() {
@@ -47839,6 +47851,7 @@ var VanPowerCard = class extends HTMLElement {
             display:block;
             height:100%;
             min-height:100%;
+            overflow:hidden;
           }
           ha-card{
             height:100%;
@@ -47899,8 +47912,8 @@ var VanPowerCard = class extends HTMLElement {
           }
           .date-time-overlay{
             position:absolute;
-            top:40px;
-            left:40px;
+            top:70px;
+            left:70px;
             z-index:3;
             pointer-events:none;
             display:flex;
@@ -47928,8 +47941,8 @@ var VanPowerCard = class extends HTMLElement {
           }
           .metric-panel{
             position:absolute;
-            left:16px;
-            bottom:50px;
+            left:46px;
+            bottom:80px;
             width:min(420px, calc(100% - 32px));
             display:grid;
             grid-template-columns:repeat(2, minmax(0, 120px));
@@ -47939,8 +47952,8 @@ var VanPowerCard = class extends HTMLElement {
           }
           .weather-panel{
             position:absolute;
-            right:16px;
-            bottom:50px;
+            right:46px;
+            bottom:80px;
             width:400px;
             display:flex;
             flex-direction:column;
@@ -48719,3 +48732,4 @@ fflate - fast JavaScript compression/decompression
 Licensed under MIT. https://github.com/101arrowz/fflate/blob/master/LICENSE
 version 0.8.2
 */
+
