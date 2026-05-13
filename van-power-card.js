@@ -1,3 +1,11 @@
+// Samsung/Android workaround:
+// Force three.js GLTFLoader away from ImageBitmapLoader.
+// Some Samsung/Android WebViews intermittently fail texture decode.
+if (/Android/i.test(navigator.userAgent || "")) {
+  window.__vanPowerOriginalCreateImageBitmap = window.createImageBitmap;
+  window.createImageBitmap = undefined;
+}
+
 import {
   AmbientLight2,
   BackSide2,
@@ -4150,9 +4158,6 @@ var VanPowerCard = class extends HTMLElement {
             flex-direction:column;
             align-items:flex-end;
             gap:6px;
-            padding:10px 12px;
-            border-radius:14px;
-            backdrop-filter:blur(6px);
             z-index:2;
             pointer-events:auto;
             cursor:pointer;
