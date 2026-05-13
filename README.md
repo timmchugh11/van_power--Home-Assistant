@@ -23,11 +23,11 @@ The card reads Home Assistant entity states directly from Lovelace and renders t
 Copy the contents of this folder into your Home Assistant `www` directory, then add:
 
 ```yaml
-url: /local/van_power/dist/van-power-card.js
+url: /local/van_power/van-power-card.js
 type: module
 ```
 
-The distributable file is the bundled build at `van-power-card.js`.
+The card entrypoint is `van-power-card.js`.
 
 ## Example Card
 

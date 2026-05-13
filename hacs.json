@@ -2,5 +2,5 @@
   "name": "Van Power",
   "content_in_root": true,
   "render_readme": true,
-  "filename": "dist/van-power-card.js"
+  "filename": "van-power-card.js"
 }
