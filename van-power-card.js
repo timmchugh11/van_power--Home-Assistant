@@ -62,6 +62,7 @@ if (typeof window !== "undefined" && typeof window.createImageBitmap === "functi
 }
 var MODEL_GLTF_CACHE = /* @__PURE__ */ new Map();
 var VAN_MODEL_URL = new URL("./van.glb", import.meta.url).toString();
+var MOON_MODEL_URL = new URL("./the_moon.glb", import.meta.url).toString();
 var GROUND_GRASS_ALBEDO_URL = new URL("./ground/albedo.png", import.meta.url).toString();
 var GROUND_GRASS_AO_URL = new URL("./ground/ao.png", import.meta.url).toString();
 var GROUND_GRASS_HEIGHT_URL = new URL("./ground/height.png", import.meta.url).toString();
@@ -2964,6 +2965,113 @@ function createVanScene(container, options = {}) {
     }
   };
 }
+function createMoonIconScene(container, options = {}) {
+  const renderer = new WebGLRenderer({ antialias: true, alpha: true });
+  const scene = new Scene2();
+  const camera = new PerspectiveCamera2(30, 1, 0.1, 100);
+  const loader = new GLTFLoader();
+  const root = new Group2();
+  let destroyed = false;
+  let frameId = 0;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputColorSpace = SRGBColorSpace2;
+  container.innerHTML = "";
+  container.appendChild(renderer.domElement);
+  scene.add(root);
+  const ambient = new AmbientLight2(16777215, 0.07);
+  const key = new DirectionalLight2(16777215, 2.4);
+  key.position.set(1.6, 2.2, 3);
+  scene.add(ambient);
+  scene.add(key);
+  camera.position.set(0, 0, 4.6);
+  camera.lookAt(0, 0, 0);
+  function clearRoot() {
+    for (let i = root.children.length - 1; i >= 0; i--) {
+      const child = root.children[i];
+      root.remove(child);
+      child.traverse?.((node) => {
+        if (node.material) {
+          const materials = Array.isArray(node.material) ? node.material : [node.material];
+          materials.forEach((material) => {
+            material.map?.dispose?.();
+            material.dispose?.();
+          });
+        }
+        node.geometry?.dispose?.();
+      });
+    }
+  }
+  function fitObject(object) {
+    const box = new Box32().setFromObject(object);
+    if (box.isEmpty()) return;
+    const size = new Vector32();
+    const center = new Vector32();
+    box.getSize(size);
+    box.getCenter(center);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const scale = 2.3 / maxDim;
+    object.scale.setScalar(scale);
+    object.position.sub(center.multiplyScalar(scale));
+  }
+  async function loadMoon() {
+    const modelUrl = options.modelUrl || MOON_MODEL_URL;
+    const moon = await loadModelAsset(loader, modelUrl);
+    if (destroyed) return;
+    clearRoot();
+    fitObject(moon);
+    root.add(moon);
+  }
+  function setLightFromAzimuthElevation(azimuthDeg, elevationDeg) {
+    const az = Number(azimuthDeg);
+    const el = Number(elevationDeg);
+    if (!Number.isFinite(az) || !Number.isFinite(el)) return false;
+    const azRad = (az % 360 + 360) % 360 * Math.PI / 180;
+    const elRad = Math.max(-90, Math.min(90, el)) * Math.PI / 180;
+    const horizontal = Math.cos(elRad);
+    const x = Math.sin(azRad) * horizontal;
+    const y = -Math.sin(elRad);
+    const z = -Math.cos(azRad) * horizontal;
+    key.position.set(x * 3.2, y * 3.2, z * 3.2);
+    key.intensity = Math.max(1.4, 2 + Math.max(0, y) * 1.2);
+    return true;
+  }
+  function resize() {
+    const width = Math.max(1, container.clientWidth);
+    const height = Math.max(1, container.clientHeight);
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+  }
+  const resizeObserver = new ResizeObserver(resize);
+  resizeObserver.observe(container);
+  resize();
+  setLightFromAzimuthElevation(
+    options.initialMoonAzimuthDegrees,
+    options.initialMoonElevationDegrees
+  );
+  loadMoon().catch((error) => {
+    console.error("Failed to load moon icon scene", error);
+  });
+  function render() {
+    if (destroyed) return;
+    frameId = requestAnimationFrame(render);
+    const t = performance.now() * 1e-3;
+    root.rotation.y = t * Math.PI * 2 * 0.012;
+    renderer.render(scene, camera);
+  }
+  render();
+  return {
+    setLightFromAzimuthElevation,
+    destroy() {
+      destroyed = true;
+      cancelAnimationFrame(frameId);
+      resizeObserver.disconnect();
+      clearRoot();
+      renderer.dispose();
+      container.innerHTML = "";
+    }
+  };
+}
 var DEFAULT_CONFIG = {
   solar_voltage: "sensor.epever_pv_voltage",
   solar_amp: "sensor.epever_pv_current",
@@ -3029,6 +3137,7 @@ var VanPowerCard = class extends HTMLElement {
     this._config = { ...DEFAULT_CONFIG };
     this._rawConfig = {};
     this._scene = null;
+    this._moonScene = null;
     this._morphOpen = this.readStoredBoolean(STORAGE_KEYS.morphOpen, false);
     this._spinEnabled = true;
     this._lightingMode = this.normalizeLightingStyle(this._config.light_style);
@@ -3102,6 +3211,8 @@ var VanPowerCard = class extends HTMLElement {
     this.restoreFullscreenMode();
     this._scene?.destroy();
     this._scene = null;
+    this._moonScene?.destroy?.();
+    this._moonScene = null;
   }
   lookup(entityId) {
     return this._hass?.states?.[entityId];
@@ -3936,6 +4047,31 @@ var VanPowerCard = class extends HTMLElement {
     if (!phase || phase === "unknown" || phase === "unavailable") return "";
     return phase;
   }
+  getMoonLightAngles() {
+    const phase = this.getMoonPhaseState();
+    if (!phase) return null;
+    const phaseAzimuth = {
+      new_moon: 0,
+      waxing_crescent: 68,
+      first_quarter: 100,
+      waxing_gibbous: 132,
+      full_moon: 191,
+      waning_gibbous: 229,
+      last_quarter: 261,
+      waning_crescent: 293
+    };
+    const azimuthDeg = phaseAzimuth[phase];
+    if (!Number.isFinite(azimuthDeg)) return null;
+    return {
+      azimuthDeg,
+      elevationDeg: 18
+    };
+  }
+  updateMoonLightFromEntity() {
+    const angles = this.getMoonLightAngles();
+    if (!angles) return;
+    this._moonScene?.setLightFromAzimuthElevation?.(angles.azimuthDeg, angles.elevationDeg);
+  }
   formatClockTime(ms) {
     if (!Number.isFinite(ms)) return "--:--";
     return new Date(ms).toLocaleTimeString([], {
@@ -4167,8 +4303,10 @@ var VanPowerCard = class extends HTMLElement {
           }
           .moon-panel{
             position:absolute;
-            top:28px;
-            right:14px;
+            top:70px;
+            right:70px;
+            width:260px;
+            height:260px;
             z-index:2;
             pointer-events:none;
             display:flex;
@@ -4186,6 +4324,15 @@ var VanPowerCard = class extends HTMLElement {
             text-transform:uppercase;
             text-align:right;
             width:100%;
+          }
+          .moon-icon{
+            width:100%;
+            height:100%;
+          }
+          .moon-icon canvas{
+            width:100%;
+            height:100%;
+            display:block;
           }
           .starlink-panel{
             position:absolute;
@@ -4459,6 +4606,7 @@ var VanPowerCard = class extends HTMLElement {
               </div>
               <div class="moon-panel is-hidden" id="moon-panel">
                 <div class="moon-label" id="moon-label"></div>
+                <div class="moon-icon" id="moon-icon"></div>
               </div>
               <div class="starlink-panel is-hidden" id="starlink-panel">
                 <button class="starlink-close" id="starlink-close" type="button" aria-label="Close Starlink panel">\u00D7</button>
@@ -4568,8 +4716,17 @@ var VanPowerCard = class extends HTMLElement {
       this.writeStoredNumber(STORAGE_KEYS.modelLightsLevel, this._modelLightsLevel);
       this.startViewStatePersistence();
     }
+    if (!this._moonScene) {
+      const initialMoonAngles = this.getMoonLightAngles();
+      this._moonScene = createMoonIconScene(this.shadowRoot.getElementById("moon-icon"), {
+        modelUrl: MOON_MODEL_URL,
+        initialMoonAzimuthDegrees: initialMoonAngles?.azimuthDeg,
+        initialMoonElevationDegrees: initialMoonAngles?.elevationDeg
+      });
+    }
     this.updateWeatherDisplay();
     this.updateMoonDisplay();
+    this.updateMoonLightFromEntity();
     this.updateDaySimulationControl();
     this.startDateTimeTimer();
     this.applyDisplayScales();
@@ -4601,6 +4758,7 @@ var VanPowerCard = class extends HTMLElement {
     ]);
     this.updateWeatherDisplay();
     this.updateMoonDisplay();
+    this.updateMoonLightFromEntity();
   }
 };
 var EDITOR_FIELD_GROUPS = [
