@@ -965,7 +965,7 @@ function createVanScene(container, options = {}) {
       const camLenXZ = Math.max(1e-3, Math.hypot(camera.position.x, camera.position.z));
       const camNx = camera.position.x / camLenXZ;
       const camNz = camera.position.z / camLenXZ;
-      const maxFrontDot = -0.24;
+      const maxFrontDot = -0.32;
       const windLen = Math.max(1e-3, Math.hypot(windX, windZ));
       const windDirX = windX / windLen;
       const windDirZ = windZ / windLen;
@@ -1008,13 +1008,15 @@ function createVanScene(container, options = {}) {
         const nearCameraDot = nextNx * camNx + nextNz * camNz;
         if (nearCameraDot > maxFrontDot) {
           const pushStrength = clamp((nearCameraDot - maxFrontDot) / (1 - maxFrontDot), 0, 1);
+          const easedPushStrength = pushStrength * pushStrength * (3 - 2 * pushStrength);
           const backAngle = Math.atan2(-camNz, -camNx);
           const spreadAngle = Math.sin(cluster.phase * 2.13 + cluster.drift * 3.7) * 0.92;
           const targetAngle = backAngle + spreadAngle;
           const targetNx = Math.cos(targetAngle);
           const targetNz = Math.sin(targetAngle);
-          let blendedNx = mix(nextNx, targetNx, 0.45 + pushStrength * 0.55);
-          let blendedNz = mix(nextNz, targetNz, 0.45 + pushStrength * 0.55);
+          const correctionBlend = 0.36 + easedPushStrength * 0.42;
+          let blendedNx = mix(nextNx, targetNx, correctionBlend);
+          let blendedNz = mix(nextNz, targetNz, correctionBlend);
           const blendedLen = Math.max(1e-3, Math.hypot(blendedNx, blendedNz));
           blendedNx /= blendedLen;
           blendedNz /= blendedLen;
@@ -3118,9 +3120,12 @@ var DEFAULT_CONFIG = {
   camera_right_entity: "",
   upper_grill: "",
   lower_grill: "",
+  starlink_card: null,
   moon_entity: "",
   weather_entity: "",
   inside_temp_entity: "",
+  media_player_entity: "",
+  media_player_filter: "",
   low_power_mode: "auto",
   max_pixel_ratio: null,
   fps_limit: 30
@@ -3152,6 +3157,9 @@ var VanPowerCard = class extends HTMLElement {
     this._pixelShiftTimer = null;
     this._debugWeatherOverride = "";
     this._debugDayTimeOverride = null;
+    this._starlinkCardElement = null;
+    this._starlinkCardConfigKey = "";
+    this._starlinkCardBuildId = 0;
   }
   connectedCallback() {
     this.render();
@@ -3162,10 +3170,14 @@ var VanPowerCard = class extends HTMLElement {
     const previousConfig = this._config;
     this._rawConfig = config || {};
     this._config = { ...DEFAULT_CONFIG, ...config || {} };
+    const starlinkCardChanged = JSON.stringify(previousConfig?.starlink_card ?? null) !== JSON.stringify(this._config.starlink_card ?? null);
     if (this._scene && this.performanceSceneConfigChanged(previousConfig, this._config)) {
       this.persistViewState();
       this._scene.destroy();
       this._scene = null;
+    }
+    if (starlinkCardChanged) {
+      this.resetStarlinkCard();
     }
     const configuredSunScale = Number(this._config.sun_intensity_scale);
     if (Number.isFinite(configuredSunScale)) {
@@ -3181,7 +3193,9 @@ var VanPowerCard = class extends HTMLElement {
     this.applySceneControlConfig();
     this.applyDisplayScales();
     this.updateWeatherDisplay();
+    this.updateMediaPlayerDisplay();
     this.updateMoonDisplay();
+    this.updateStarlinkCardHass();
     this.applyFullscreenMode();
   }
   set hass(hass) {
@@ -3481,9 +3495,9 @@ var VanPowerCard = class extends HTMLElement {
     if (viewDiv) {
       viewDiv.style.setProperty("padding", "0px");
     }
-    const haDrawer = document.querySelector("body > home-assistant")?.shadowRoot?.querySelector("home-assistant-main")?.shadowRoot?.querySelector("ha-drawer");
-    if (haDrawer) {
-      haDrawer.style.setProperty("--mdc-drawer-width", "0px");
+    const haMain = document.querySelector("body > home-assistant")?.shadowRoot?.querySelector("home-assistant-main");
+    if (haMain) {
+      haMain.style.setProperty("--ha-sidebar-width", "0px");
     }
     const headerDiv = document.querySelector("body > home-assistant")?.shadowRoot?.querySelector("home-assistant-main")?.shadowRoot?.querySelector("ha-drawer > partial-panel-resolver > ha-panel-lovelace")?.shadowRoot?.querySelector("hui-root")?.shadowRoot?.querySelector("div > div.header");
     if (headerDiv) {
@@ -3496,10 +3510,10 @@ var VanPowerCard = class extends HTMLElement {
     this.stopPixelShift();
     if (!this._fullscreenApplied) return;
     const ham = document.querySelector("body > home-assistant")?.shadowRoot?.querySelector("home-assistant-main");
-    const drawer = ham?.shadowRoot?.querySelector("ha-drawer");
-    if (drawer) {
-      drawer.style.removeProperty("--mdc-drawer-width");
+    if (ham) {
+      ham.style.removeProperty("--ha-sidebar-width");
     }
+    const drawer = ham?.shadowRoot?.querySelector("ha-drawer");
     const panel = drawer?.querySelector("partial-panel-resolver > ha-panel-lovelace");
     const root = panel?.shadowRoot?.querySelector("hui-root");
     const view = root?.shadowRoot?.querySelector("#view");
@@ -3555,16 +3569,97 @@ var VanPowerCard = class extends HTMLElement {
       return "";
     }
   }
-  openStarlinkPanel(detail = {}) {
-    const url = this.getStarlinkCombinedUrl();
-    if (!url) {
-      console.warn("Starlink ingress path not found in localStorage key: starlink_gui.ingress_path");
-      return;
+  getStarlinkCardConfig() {
+    const config = this._config.starlink_card;
+    if (!config || typeof config !== "object" || Array.isArray(config)) return null;
+    const type = String(config.type || "").trim();
+    return type ? { ...config, type } : null;
+  }
+  createFallbackCardElement(config) {
+    const type = String(config?.type || "").trim();
+    const tagName = type.startsWith("custom:") ? type.slice(7) : `hui-${type}-card`;
+    if (!tagName) return null;
+    const card = document.createElement(tagName);
+    if (typeof card.setConfig === "function") {
+      card.setConfig(config);
+    } else {
+      card.config = config;
     }
+    return card;
+  }
+  async createStarlinkCardElement(config) {
+    if (typeof window.loadCardHelpers === "function") {
+      const helpers = await window.loadCardHelpers();
+      if (typeof helpers?.createCardElement === "function") {
+        return helpers.createCardElement(config);
+      }
+    }
+    return this.createFallbackCardElement(config);
+  }
+  async ensureStarlinkCard() {
+    const config = this.getStarlinkCardConfig();
+    if (!config) return null;
+    const host = this.shadowRoot?.getElementById("starlink-card-host");
+    if (!host) return null;
+    const configKey = JSON.stringify(config);
+    if (this._starlinkCardElement && this._starlinkCardConfigKey === configKey) {
+      this._starlinkCardElement.hass = this._hass;
+      return this._starlinkCardElement;
+    }
+    const buildId = (this._starlinkCardBuildId || 0) + 1;
+    this._starlinkCardBuildId = buildId;
+    this._starlinkCardElement = null;
+    this._starlinkCardConfigKey = "";
+    host.textContent = "Loading...";
+    try {
+      const card = await this.createStarlinkCardElement(config);
+      if (this._starlinkCardBuildId !== buildId) return null;
+      if (!card) throw new Error("No card element was created");
+      card.hass = this._hass;
+      host.replaceChildren(card);
+      this._starlinkCardElement = card;
+      this._starlinkCardConfigKey = configKey;
+      return card;
+    } catch (error22) {
+      if (this._starlinkCardBuildId !== buildId) return null;
+      console.error("Failed to create Starlink popup card", error22);
+      host.textContent = "Unable to load Starlink card";
+      return null;
+    }
+  }
+  updateStarlinkCardHass() {
+    if (this._starlinkCardElement) {
+      this._starlinkCardElement.hass = this._hass;
+    }
+  }
+  resetStarlinkCard() {
+    this._starlinkCardBuildId = (this._starlinkCardBuildId || 0) + 1;
+    this._starlinkCardElement = null;
+    this._starlinkCardConfigKey = "";
+    const host = this.shadowRoot?.getElementById("starlink-card-host");
+    if (host) host.replaceChildren();
+  }
+  openStarlinkPanel(detail = {}) {
     const panel = this.shadowRoot?.getElementById("starlink-panel");
     const frame = this.shadowRoot?.getElementById("starlink-frame");
-    if (!panel || !frame) return;
-    frame.src = url;
+    const cardHost = this.shadowRoot?.getElementById("starlink-card-host");
+    if (!panel || !frame || !cardHost) return;
+    const cardConfig = this.getStarlinkCardConfig();
+    if (cardConfig) {
+      frame.classList.add("is-hidden");
+      frame.removeAttribute("src");
+      cardHost.classList.remove("is-hidden");
+      this.ensureStarlinkCard();
+    } else {
+      const url = this.getStarlinkCombinedUrl();
+      if (!url) {
+        console.warn("Starlink ingress path not found in localStorage key: starlink_gui.ingress_path");
+        return;
+      }
+      cardHost.classList.add("is-hidden");
+      frame.classList.remove("is-hidden");
+      frame.src = url;
+    }
     panel.classList.remove("is-hidden");
     const clientX = Number(detail?.clientX);
     const clientY = Number(detail?.clientY);
@@ -3935,6 +4030,133 @@ var VanPowerCard = class extends HTMLElement {
     if (!entityId) return;
     this.openMoreInfo(entityId);
   }
+  getMediaPlayerText() {
+    const entityId = String(this._config.media_player_entity || "").trim();
+    if (!entityId) return "";
+    const state = this.lookup(entityId);
+    if (!state) return "";
+    const playbackState = String(state.state || "").trim().toLowerCase();
+    if (!playbackState || playbackState === "unknown" || playbackState === "unavailable" || playbackState === "off") return "";
+    const attrs = state.attributes || {};
+    const title = String(attrs.media_title || attrs.media_content_id || "").trim();
+    const artist = String(attrs.media_artist || attrs.media_album_artist || "").trim();
+    const appName = String(attrs.app_name || attrs.source || "").trim();
+    if (title && artist) return `${artist} - ${title}`;
+    if (title) return title;
+    if (appName && playbackState === "playing") return `Playing on ${appName}`;
+    if (playbackState === "playing") return "Playing";
+    if (playbackState === "paused") return "Paused";
+    return "";
+  }
+  getMediaPlayerFilterTerms() {
+    const raw = this._config.media_player_filter;
+    const list = Array.isArray(raw) ? raw : String(raw || "").split(/[\n,]+/);
+    return list.map((term) => String(term || "").trim().toLowerCase()).filter(Boolean);
+  }
+  getMediaPlayerFilterText() {
+    const entityId = String(this._config.media_player_entity || "").trim();
+    if (!entityId) return "";
+    const state = this.lookup(entityId);
+    if (!state) return "";
+    const attrs = state.attributes || {};
+    return [
+      state.state,
+      attrs.media_title,
+      attrs.media_artist,
+      attrs.media_album_artist,
+      attrs.media_album_name,
+      attrs.app_name,
+      attrs.source,
+      attrs.media_content_type,
+      attrs.media_content_id
+    ].map((value) => String(value || "").trim()).filter(Boolean).join(" ").toLowerCase();
+  }
+  isMediaPlayerFiltered() {
+    const terms = this.getMediaPlayerFilterTerms();
+    if (!terms.length) return false;
+    const haystack = this.getMediaPlayerFilterText();
+    if (!haystack) return false;
+    return terms.some((term) => haystack.includes(term));
+  }
+  getMediaPlayerArtworkUrl() {
+    const entityId = String(this._config.media_player_entity || "").trim();
+    if (!entityId) return "";
+    const state = this.lookup(entityId);
+    if (!state) return "";
+    const attrs = state.attributes || {};
+    const rawUrl = String(attrs.entity_picture || attrs.media_image_url || attrs.media_image || "").trim();
+    if (!rawUrl || rawUrl === "unknown" || rawUrl === "unavailable") return "";
+    if (/^https?:\/\//i.test(rawUrl) || rawUrl.startsWith("data:")) return rawUrl;
+    if (rawUrl.startsWith("//")) return `${window.location.protocol}${rawUrl}`;
+    if (rawUrl.startsWith("/") && typeof this._hass?.hassUrl === "function") {
+      return this._hass.hassUrl(rawUrl);
+    }
+    return rawUrl;
+  }
+  handleMediaPlayerClick() {
+    const entityId = String(this._config.media_player_entity || "").trim();
+    if (!entityId) return;
+    this.openMoreInfo(entityId);
+  }
+  updateMediaPlayerDisplay() {
+    const panel = this.shadowRoot?.getElementById("media-player-panel");
+    const textNode = this.shadowRoot?.getElementById("media-player-label");
+    const textContentNode = this.shadowRoot?.getElementById("media-player-text");
+    const artNode = this.shadowRoot?.getElementById("media-player-art");
+    if (!panel || !textNode || !textContentNode || !artNode) return;
+    const mediaText = this.getMediaPlayerText();
+    if (!mediaText || this.isMediaPlayerFiltered()) {
+      panel.classList.add("is-hidden");
+      panel.classList.remove("has-art");
+      panel.classList.remove("is-scrolling");
+      textContentNode.textContent = "";
+      if (artNode.dataset.src) {
+        artNode.removeAttribute("src");
+        artNode.dataset.src = "";
+      }
+      artNode.classList.add("is-hidden");
+      return;
+    }
+    panel.classList.remove("is-hidden");
+    if (textContentNode.textContent !== mediaText) {
+      textContentNode.textContent = mediaText;
+    }
+    const artworkUrl = this.getMediaPlayerArtworkUrl();
+    if (artworkUrl) {
+      panel.classList.add("has-art");
+      if (artNode.dataset.src !== artworkUrl) {
+        artNode.dataset.src = artworkUrl;
+        artNode.src = artworkUrl;
+      }
+      artNode.classList.remove("is-hidden");
+    } else {
+      panel.classList.remove("has-art");
+      if (artNode.dataset.src) {
+        artNode.removeAttribute("src");
+        artNode.dataset.src = "";
+      }
+      artNode.classList.add("is-hidden");
+    }
+    requestAnimationFrame(() => this.updateMediaPlayerMarquee());
+  }
+  updateMediaPlayerMarquee() {
+    const panel = this.shadowRoot?.getElementById("media-player-panel");
+    const viewport = this.shadowRoot?.getElementById("media-player-label");
+    const text = this.shadowRoot?.getElementById("media-player-text");
+    if (!panel || !viewport || !text || panel.classList.contains("is-hidden")) return;
+    const overflow = text.scrollWidth - viewport.clientWidth;
+    if (overflow > 8) {
+      const distance = Math.ceil(overflow + 28);
+      const duration = Math.max(8, Math.min(22, distance / 18));
+      panel.style.setProperty("--media-scroll-distance", `${distance}px`);
+      panel.style.setProperty("--media-scroll-duration", `${duration}s`);
+      panel.classList.add("is-scrolling");
+    } else {
+      panel.classList.remove("is-scrolling");
+      panel.style.removeProperty("--media-scroll-distance");
+      panel.style.removeProperty("--media-scroll-duration");
+    }
+  }
   updateWeatherDisplay() {
     const panel = this.shadowRoot?.getElementById("weather-panel");
     const textNode = this.shadowRoot?.getElementById("weather-label");
@@ -4301,6 +4523,72 @@ var VanPowerCard = class extends HTMLElement {
           .weather-panel.is-hidden{
             display:none;
           }
+          .media-player-panel{
+            position:absolute;
+            left:50%;
+            bottom:80px;
+            width:clamp(240px, 24vw, 360px);
+            min-height:50px;
+            padding:9px 16px;
+            transform:translateX(-50%);
+            z-index:2;
+            pointer-events:auto;
+            cursor:pointer;
+            text-align:center;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            border:1px solid rgba(255, 255, 255, 0.42);
+            border-radius:16px;
+            background:linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.07));
+            box-shadow:0 14px 34px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.52), inset 0 -1px 0 rgba(255,255,255,0.06);
+            backdrop-filter:blur(30px) saturate(190%) brightness(1.08);
+            -webkit-backdrop-filter:blur(30px) saturate(190%) brightness(1.08);
+          }
+          .media-player-panel.is-hidden{
+            display:none;
+          }
+          .media-player-panel.has-art{
+            padding-left:86px;
+          }
+          .media-player-art{
+            position:absolute;
+            left:14px;
+            top:-31px;
+            width:62px;
+            height:62px;
+            border-radius:12px;
+            object-fit:cover;
+            border:1px solid rgba(255, 255, 255, 0.46);
+            box-shadow:0 14px 28px rgba(0,0,0,0.26);
+            background:rgba(255, 255, 255, 0.12);
+          }
+          .media-player-art.is-hidden{
+            display:none;
+          }
+          .media-player-label{
+            color:rgba(247, 250, 255, 0.92);
+            width:100%;
+            font:700 16px/1.15 "Rajdhani", "Segoe UI", sans-serif;
+            letter-spacing:0;
+            text-shadow:0 2px 10px rgba(0,0,0,0.36);
+            overflow:hidden;
+            white-space:nowrap;
+            min-width:0;
+          }
+          .media-player-text{
+            display:inline-block;
+            max-width:none;
+            will-change:transform;
+          }
+          .media-player-panel.is-scrolling .media-player-text{
+            animation:media-player-marquee var(--media-scroll-duration, 12s) ease-in-out infinite;
+          }
+          @keyframes media-player-marquee{
+            0%, 14%{transform:translateX(0)}
+            78%, 88%{transform:translateX(calc(-1 * var(--media-scroll-distance, 0px)))}
+            100%{transform:translateX(0)}
+          }
           .moon-panel{
             position:absolute;
             top:70px;
@@ -4370,6 +4658,22 @@ var VanPowerCard = class extends HTMLElement {
             height:100%;
             border:none;
             background:#000;
+          }
+          .starlink-frame.is-hidden,
+          .starlink-card-host.is-hidden{
+            display:none;
+          }
+          .starlink-card-host{
+            width:100%;
+            height:100%;
+            overflow:auto;
+            padding:10px;
+            background:var(--card-background-color, #000);
+            color:var(--primary-text-color, #e6eef8);
+          }
+          .starlink-card-host > *{
+            display:block;
+            width:100%;
           }
           .weather-label{
             color:rgba(198, 206, 217, 0.72);
@@ -4509,6 +4813,32 @@ var VanPowerCard = class extends HTMLElement {
             .weather-label{
               font-size:24px;
             }
+            .media-player-panel{
+              position:static;
+              left:auto;
+              bottom:auto;
+              width:min(320px, 100%);
+              min-height:48px;
+              padding:9px 14px;
+              transform:none;
+              order:3;
+              align-self:center;
+              text-align:center;
+            }
+            .media-player-panel.has-art{
+              padding-left:76px;
+            }
+            .media-player-art{
+              left:12px;
+              top:-27px;
+              width:54px;
+              height:54px;
+              border-radius:10px;
+            }
+            .media-player-label{
+              font-size:15px;
+              white-space:nowrap;
+            }
             .metric-panel{
               position:static;
               left:auto;
@@ -4516,7 +4846,7 @@ var VanPowerCard = class extends HTMLElement {
               bottom:auto;
               width:100%;
               gap:8px;
-              order:3;
+              order:4;
               grid-template-columns:repeat(2, minmax(0, 1fr));
             }
             .metric-tile{
@@ -4578,6 +4908,12 @@ var VanPowerCard = class extends HTMLElement {
                 <div class="weather-label" id="weather-label"></div>
                 <div class="weather-label weather-inside-label is-hidden" id="weather-inside-label"></div>
               </div>
+              <div class="media-player-panel is-hidden" id="media-player-panel">
+                <img class="media-player-art is-hidden" id="media-player-art" alt="">
+                <div class="media-player-label" id="media-player-label">
+                  <span class="media-player-text" id="media-player-text"></span>
+                </div>
+              </div>
               <div class="scene-debug-controls" id="scene-debug-controls">
                 <label for="debug-weather-select">Debug Weather</label>
                 <select id="debug-weather-select">
@@ -4611,6 +4947,7 @@ var VanPowerCard = class extends HTMLElement {
               <div class="starlink-panel is-hidden" id="starlink-panel">
                 <button class="starlink-close" id="starlink-close" type="button" aria-label="Close Starlink panel">\u00D7</button>
                 <iframe class="starlink-frame" id="starlink-frame" title="Starlink Combined"></iframe>
+                <div class="starlink-card-host is-hidden" id="starlink-card-host"></div>
               </div>
               <div class="overlay"></div>
             </div>
@@ -4625,6 +4962,14 @@ var VanPowerCard = class extends HTMLElement {
       });
       this.shadowRoot.getElementById("weather-panel")?.addEventListener("click", () => {
         this.handleWeatherClick();
+      });
+      this.shadowRoot.getElementById("media-player-panel")?.addEventListener("click", () => {
+        this.handleMediaPlayerClick();
+      });
+      this.shadowRoot.getElementById("media-player-art")?.addEventListener("error", (event) => {
+        event.target.classList.add("is-hidden");
+        event.target.dataset.src = "";
+        this.shadowRoot.getElementById("media-player-panel")?.classList.remove("has-art");
       });
       this.shadowRoot.getElementById("debug-weather-select")?.addEventListener("change", (event) => {
         this.handleDebugWeatherSelectChange(event);
@@ -4731,6 +5076,7 @@ var VanPowerCard = class extends HTMLElement {
     this.startDateTimeTimer();
     this.applyDisplayScales();
     this.updateMetricTiles();
+    this.updateMediaPlayerDisplay();
   }
   update() {
     if (!this._hass) return;
@@ -4740,6 +5086,7 @@ var VanPowerCard = class extends HTMLElement {
     this._scene?.setCloudsVisible?.(this.useClouds());
     this._scene?.setLabels?.(this.buildSceneLabels());
     this.updateMetricTiles();
+    this.updateMediaPlayerDisplay();
     this._scene?.setSunLocation?.(
       this.getConfiguredLatitude(),
       this.getConfiguredLongitude()
@@ -4759,6 +5106,7 @@ var VanPowerCard = class extends HTMLElement {
     this.updateWeatherDisplay();
     this.updateMoonDisplay();
     this.updateMoonLightFromEntity();
+    this.updateStarlinkCardHass();
   }
 };
 var EDITOR_FIELD_GROUPS = [
@@ -4838,7 +5186,9 @@ var EDITOR_FIELD_GROUPS = [
     title: "Weather",
     fields: [
       { key: "weather_entity", label: "Weather Entity", type: "entity", includeDomains: ["weather"] },
-      { key: "inside_temp_entity", label: "Inside Temperature Entity (Optional)", type: "entity", includeDomains: ["sensor", "input_number", "number"] }
+      { key: "inside_temp_entity", label: "Inside Temperature Entity (Optional)", type: "entity", includeDomains: ["sensor", "input_number", "number"] },
+      { key: "media_player_entity", label: "Media Player Entity (Optional)", type: "entity", includeDomains: ["media_player"] },
+      { key: "media_player_filter", label: "Media Player Hide Filter (comma separated)", type: "text" }
     ]
   }
 ];
