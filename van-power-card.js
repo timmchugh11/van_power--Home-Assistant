@@ -165,6 +165,8 @@ function createVanScene(container, options = {}) {
   const modelGroup = new Group2();
   const labelGroup = new Group2();
   const compassGroup = new Group2();
+  const assetGroups = /* @__PURE__ */ new Map();
+  const assetGroupVisibility = /* @__PURE__ */ new Map();
   let rotationY = options.initialRotationY ?? 0.6034306640624976;
   let targetRotationY = rotationY;
   let targetPitch = options.initialPitch ?? -0.7;
@@ -2077,6 +2079,18 @@ function createVanScene(container, options = {}) {
     createCompassUnderModel(compassRadius, compassY);
     modelGroup.clear();
     modelGroup.add(model);
+    assetGroups.clear();
+    model.traverse((child) => {
+      if (child?.userData?.default_hidden === true) child.visible = false;
+      const assetGroup = child?.userData?.asset_group;
+      if (!assetGroup) return;
+      if (!assetGroups.has(assetGroup)) assetGroups.set(assetGroup, []);
+      assetGroups.get(assetGroup).push(child);
+    });
+    for (const [assetGroup, visible] of assetGroupVisibility) {
+      const members = assetGroups.get(assetGroup) || [];
+      for (const member of members) member.visible = visible;
+    }
     cacheModelSurfaceMaterials(model);
     morphTargets.length = 0;
     modelLights.length = 0;
@@ -2931,6 +2945,15 @@ function createVanScene(container, options = {}) {
       compassGroup.visible = Boolean(enabled);
       requestSceneRender();
     },
+    setAssetGroupVisible(assetGroup, enabled) {
+      const key = String(assetGroup || "");
+      const visible = Boolean(enabled);
+      assetGroupVisibility.set(key, visible);
+      const members = assetGroups.get(key) || [];
+      for (const member of members) member.visible = visible;
+      requestSceneRender();
+      return visible;
+    },
     setLabelsSpinWithModel(enabled) {
       labelsSpinWithModel = Boolean(enabled);
       updateLabelPositions();
@@ -3157,6 +3180,7 @@ var VanPowerCard = class extends HTMLElement {
     this._pixelShiftTimer = null;
     this._debugWeatherOverride = "";
     this._debugDayTimeOverride = null;
+    this._selectedView = null;
     this._starlinkCardElement = null;
     this._starlinkCardConfigKey = "";
     this._starlinkCardBuildId = 0;
@@ -4227,6 +4251,14 @@ var VanPowerCard = class extends HTMLElement {
       if (detail) detail.textContent = tileData.detail;
     }
   }
+  updateEvChargerVisibility() {
+    const hookupVoltage = Number.parseFloat(this.lookup(this._config.grid_voltage)?.state);
+    const hookupPresent = Number.isFinite(hookupVoltage) && hookupVoltage > 5;
+    this._scene?.setAssetGroupVisible?.(
+      "EV_CHARGER_AND_CABLE",
+      hookupPresent || this._selectedView === "hookup"
+    );
+  }
   getMoonPhaseLabel() {
     const phase = this.getMoonPhaseState();
     if (!phase) return "";
@@ -4992,6 +5024,12 @@ var VanPowerCard = class extends HTMLElement {
           this.closeStarlinkPanel();
         }
       });
+      for (const tile of this.shadowRoot.querySelectorAll("[data-tile]")) {
+        tile.addEventListener("click", () => {
+          this._selectedView = tile.dataset.tile || null;
+          this.updateEvChargerVisibility();
+        });
+      }
       this.shadowRoot.addEventListener("pointerdown", (event) => {
         const panel = this.shadowRoot?.getElementById("starlink-panel");
         if (!panel || panel.classList.contains("is-hidden")) return;
@@ -5056,6 +5094,7 @@ var VanPowerCard = class extends HTMLElement {
       this._scene.setCompassVisible?.(this.useCompass());
       this._scene.setLabelsVisible?.(this.useFloatingMetrics());
       this._scene.setCloudsVisible?.(this.useClouds());
+      this.updateEvChargerVisibility();
       this._lightingMode = this._scene.setLightingMode?.(this._lightingMode) || this._lightingMode;
       this._modelLightsLevel = this._scene.setModelLightsLevel?.(this._modelLightsLevel) ?? this._modelLightsLevel;
       this.writeStoredNumber(STORAGE_KEYS.modelLightsLevel, this._modelLightsLevel);
@@ -5086,6 +5125,7 @@ var VanPowerCard = class extends HTMLElement {
     this._scene?.setCloudsVisible?.(this.useClouds());
     this._scene?.setLabels?.(this.buildSceneLabels());
     this.updateMetricTiles();
+    this.updateEvChargerVisibility();
     this.updateMediaPlayerDisplay();
     this._scene?.setSunLocation?.(
       this.getConfiguredLatitude(),
