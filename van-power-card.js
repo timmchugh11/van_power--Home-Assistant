@@ -2082,7 +2082,8 @@ function createVanScene(container, options = {}) {
     assetGroups.clear();
     model.traverse((child) => {
       if (child?.userData?.default_hidden === true) child.visible = false;
-      const assetGroup = child?.userData?.asset_group;
+      const isEvChargerNode = /^EV_CHARGER_/i.test(child?.name || "") || child?.name === "Blue_Hookup_Cable";
+      const assetGroup = child?.userData?.asset_group || (isEvChargerNode ? "EV_CHARGER_AND_CABLE" : "");
       if (!assetGroup) return;
       if (!assetGroups.has(assetGroup)) assetGroups.set(assetGroup, []);
       assetGroups.get(assetGroup).push(child);
@@ -3180,7 +3181,6 @@ var VanPowerCard = class extends HTMLElement {
     this._pixelShiftTimer = null;
     this._debugWeatherOverride = "";
     this._debugDayTimeOverride = null;
-    this._selectedView = null;
     this._starlinkCardElement = null;
     this._starlinkCardConfigKey = "";
     this._starlinkCardBuildId = 0;
@@ -4256,7 +4256,7 @@ var VanPowerCard = class extends HTMLElement {
     const hookupPresent = Number.isFinite(hookupVoltage) && hookupVoltage > 5;
     this._scene?.setAssetGroupVisible?.(
       "EV_CHARGER_AND_CABLE",
-      hookupPresent || this._selectedView === "hookup"
+      hookupPresent
     );
   }
   getMoonPhaseLabel() {
@@ -5024,12 +5024,6 @@ var VanPowerCard = class extends HTMLElement {
           this.closeStarlinkPanel();
         }
       });
-      for (const tile of this.shadowRoot.querySelectorAll("[data-tile]")) {
-        tile.addEventListener("click", () => {
-          this._selectedView = tile.dataset.tile || null;
-          this.updateEvChargerVisibility();
-        });
-      }
       this.shadowRoot.addEventListener("pointerdown", (event) => {
         const panel = this.shadowRoot?.getElementById("starlink-panel");
         if (!panel || panel.classList.contains("is-hidden")) return;
