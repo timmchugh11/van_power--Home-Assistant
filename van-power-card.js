@@ -38,6 +38,7 @@ import {
   Vector32,
   WebGLRenderer
 } from "./van-power-card-deps.js";
+import "./van-music-player-page.js";
 if (typeof window !== "undefined" && typeof window.createImageBitmap === "function") {
   const _origCIB = window.createImageBitmap;
   const _cibLimit = /Android/i.test(navigator?.userAgent || "") ? 1 : 3;
@@ -3149,6 +3150,9 @@ var DEFAULT_CONFIG = {
   weather_entity: "",
   inside_temp_entity: "",
   media_player_entity: "",
+  media_volume_entity: "",
+  media_player_secondary_entity: "",
+  media_group_leader_entity: "",
   media_player_filter: "",
   low_power_mode: "auto",
   max_pixel_ratio: null,
@@ -4054,8 +4058,13 @@ var VanPowerCard = class extends HTMLElement {
     if (!entityId) return;
     this.openMoreInfo(entityId);
   }
+  getMediaDisplayEntityId() {
+    const configured = String(this._config.media_player_entity || "").trim();
+    const candidates = [configured, "media_player.front_music_assistant", "media_player.master_room_music_assistant"];
+    return candidates.find((entityId) => ["playing", "paused"].includes(this.lookup(entityId)?.state)) || configured;
+  }
   getMediaPlayerText() {
-    const entityId = String(this._config.media_player_entity || "").trim();
+    const entityId = this.getMediaDisplayEntityId();
     if (!entityId) return "";
     const state = this.lookup(entityId);
     if (!state) return "";
@@ -4078,7 +4087,7 @@ var VanPowerCard = class extends HTMLElement {
     return list.map((term) => String(term || "").trim().toLowerCase()).filter(Boolean);
   }
   getMediaPlayerFilterText() {
-    const entityId = String(this._config.media_player_entity || "").trim();
+    const entityId = this.getMediaDisplayEntityId();
     if (!entityId) return "";
     const state = this.lookup(entityId);
     if (!state) return "";
@@ -4103,7 +4112,7 @@ var VanPowerCard = class extends HTMLElement {
     return terms.some((term) => haystack.includes(term));
   }
   getMediaPlayerArtworkUrl() {
-    const entityId = String(this._config.media_player_entity || "").trim();
+    const entityId = this.getMediaDisplayEntityId();
     if (!entityId) return "";
     const state = this.lookup(entityId);
     if (!state) return "";
@@ -4118,9 +4127,15 @@ var VanPowerCard = class extends HTMLElement {
     return rawUrl;
   }
   handleMediaPlayerClick() {
-    const entityId = String(this._config.media_player_entity || "").trim();
-    if (!entityId) return;
-    this.openMoreInfo(entityId);
+    const page = this.shadowRoot?.getElementById("music-player-page");
+    if (!page) return;
+    page.open();
+  }
+  updateMusicPlayerPage() {
+    const page = this.shadowRoot?.getElementById("music-player-page");
+    if (!page) return;
+    page.config = this._config;
+    page.hass = this._hass;
   }
   updateMediaPlayerDisplay() {
     const panel = this.shadowRoot?.getElementById("media-player-panel");
@@ -4946,6 +4961,7 @@ var VanPowerCard = class extends HTMLElement {
                   <span class="media-player-text" id="media-player-text"></span>
                 </div>
               </div>
+              <van-music-player-page id="music-player-page"></van-music-player-page>
               <div class="scene-debug-controls" id="scene-debug-controls">
                 <label for="debug-weather-select">Debug Weather</label>
                 <select id="debug-weather-select">
@@ -4998,6 +5014,7 @@ var VanPowerCard = class extends HTMLElement {
       this.shadowRoot.getElementById("media-player-panel")?.addEventListener("click", () => {
         this.handleMediaPlayerClick();
       });
+      this.updateMusicPlayerPage();
       this.shadowRoot.getElementById("media-player-art")?.addEventListener("error", (event) => {
         event.target.classList.add("is-hidden");
         event.target.dataset.src = "";
@@ -5121,6 +5138,7 @@ var VanPowerCard = class extends HTMLElement {
     this.updateMetricTiles();
     this.updateEvChargerVisibility();
     this.updateMediaPlayerDisplay();
+    this.updateMusicPlayerPage();
     this._scene?.setSunLocation?.(
       this.getConfiguredLatitude(),
       this.getConfiguredLongitude()
@@ -5221,7 +5239,10 @@ var EDITOR_FIELD_GROUPS = [
     fields: [
       { key: "weather_entity", label: "Weather Entity", type: "entity", includeDomains: ["weather"] },
       { key: "inside_temp_entity", label: "Inside Temperature Entity (Optional)", type: "entity", includeDomains: ["sensor", "input_number", "number"] },
-      { key: "media_player_entity", label: "Media Player Entity (Optional)", type: "entity", includeDomains: ["media_player"] },
+      { key: "media_player_entity", label: "Music Player / Metadata Entity", type: "entity", includeDomains: ["media_player"] },
+      { key: "media_volume_entity", label: "Primary Volume Entity (Optional)", type: "entity", includeDomains: ["media_player"] },
+      { key: "media_player_secondary_entity", label: "Second Speaker Entity (Optional)", type: "entity", includeDomains: ["media_player"] },
+      { key: "media_group_leader_entity", label: "Group Leader Entity (Optional)", type: "entity", includeDomains: ["media_player"] },
       { key: "media_player_filter", label: "Media Player Hide Filter (comma separated)", type: "text" }
     ]
   }

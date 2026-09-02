@@ -10,6 +10,9 @@ The card reads Home Assistant entity states directly from Lovelace and renders t
 - 3D van model rendered directly in the card
 - Reads Home Assistant sensor state from the current Lovelace session
 - No add-on ingress dependency
+- Full-screen artwork-led music player opened from the now-playing tile
+- Transport, seek, shuffle, repeat, source, mute and volume controls
+- Arylic grouping with an independent second-speaker volume slider while grouped
 
 ## Installation
 
@@ -46,6 +49,10 @@ alternator_voltage: sensor.charger_alternator_voltage
 alternator_amp: sensor.charger_alternator_current
 alternator_watt: sensor.charger_alternator_power
 battery_percent: sensor.battery_percentage
+media_player_entity: media_player.front_music_assistant
+media_volume_entity: media_player.front
+media_player_secondary_entity: media_player.master_room
+media_group_leader_entity: media_player.front
 ```
 
 ## Default Entities
