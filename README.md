@@ -32,6 +32,24 @@ type: module
 
 The card entrypoint is `van-power-card.js`.
 
+## Development
+
+Install the pinned development dependencies and build the shared Three.js modules:
+
+```sh
+npm install
+npm run build
+```
+
+The editable source model is `assets/van.source.glb`. Regenerate the optimized runtime model and validate the complete package with:
+
+```sh
+npm run optimize:model
+npm run check
+```
+
+The runtime model preserves the source node names and animation while applying Meshopt geometry compression and limiting embedded textures to 2048px. Both 3D cards use the same statically imported, preconfigured GLTFLoader. The card uses the 1024px WebP ground textures in `ground/`; the original texture sources remain available for future asset work but are excluded from HACS releases.
+
 ## Example Card
 
 ```yaml

@@ -7,37 +7,37 @@ if (/Android/i.test(navigator.userAgent || "")) {
 }
 
 import {
-  AmbientLight2,
-  BackSide2,
-  Box32,
-  BufferGeometry2,
-  CanvasTexture2,
-  Color2,
-  DirectionalLight2,
-  Float32BufferAttribute2,
-  GLTFLoader,
-  Group2,
-  LineBasicMaterial2,
-  LineLoop2,
-  LineSegments2,
-  Mesh2,
-  MeshBasicMaterial2,
-  MeshStandardMaterial2,
-  Object3D2,
-  PerspectiveCamera2,
-  PlaneGeometry2,
-  Points2,
-  PointsMaterial2,
-  RepeatWrapping2,
-  Scene2,
-  SpotLight2,
-  Sprite2,
-  SpriteMaterial2,
-  SRGBColorSpace2,
-  TextureLoader2,
-  Vector32,
+  AmbientLight as AmbientLight2,
+  BackSide as BackSide2,
+  Box3 as Box32,
+  BufferGeometry as BufferGeometry2,
+  CanvasTexture as CanvasTexture2,
+  Color as Color2,
+  DirectionalLight as DirectionalLight2,
+  Float32BufferAttribute as Float32BufferAttribute2,
+  Group as Group2,
+  LineBasicMaterial as LineBasicMaterial2,
+  LineLoop as LineLoop2,
+  LineSegments as LineSegments2,
+  Mesh as Mesh2,
+  MeshBasicMaterial as MeshBasicMaterial2,
+  MeshStandardMaterial as MeshStandardMaterial2,
+  Object3D as Object3D2,
+  PerspectiveCamera as PerspectiveCamera2,
+  PlaneGeometry as PlaneGeometry2,
+  Points as Points2,
+  PointsMaterial as PointsMaterial2,
+  RepeatWrapping as RepeatWrapping2,
+  Scene as Scene2,
+  SpotLight as SpotLight2,
+  Sprite as Sprite2,
+  SpriteMaterial as SpriteMaterial2,
+  SRGBColorSpace as SRGBColorSpace2,
+  TextureLoader as TextureLoader2,
+  Vector3 as Vector32,
   WebGLRenderer
-} from "./van-power-card-deps.js";
+} from "./vendor/shared/three-entry.js";
+import { createGLTFLoader } from "./vendor/shared/gltf-loader-entry.js";
 import "./van-music-player-page.js";
 if (typeof window !== "undefined" && typeof window.createImageBitmap === "function") {
   const _origCIB = window.createImageBitmap;
@@ -62,12 +62,15 @@ if (typeof window !== "undefined" && typeof window.createImageBitmap === "functi
   };
 }
 var MODEL_GLTF_CACHE = /* @__PURE__ */ new Map();
-var VAN_MODEL_URL = new URL("./van.glb", import.meta.url).toString();
+var VAN_MODEL_URL = new URL("./van.glb?v=20260902-perf4", import.meta.url).toString();
 var MOON_MODEL_URL = new URL("./the_moon.glb", import.meta.url).toString();
-var GROUND_GRASS_ALBEDO_URL = new URL("./ground/albedo.png", import.meta.url).toString();
-var GROUND_GRASS_AO_URL = new URL("./ground/ao.png", import.meta.url).toString();
-var GROUND_GRASS_HEIGHT_URL = new URL("./ground/height.png", import.meta.url).toString();
-var GROUND_GRASS_NORMAL_URL = new URL("./ground/normal-ogl.png", import.meta.url).toString();
+var GROUND_GRASS_ALBEDO_URL = new URL("./ground/albedo-1024.webp", import.meta.url).toString();
+var GROUND_GRASS_AO_URL = new URL("./ground/ao-1024.webp", import.meta.url).toString();
+var GROUND_GRASS_HEIGHT_URL = new URL("./ground/height-1024.webp", import.meta.url).toString();
+var GROUND_GRASS_NORMAL_URL = new URL("./ground/normal-ogl-1024.webp", import.meta.url).toString();
+function createGltfLoader() {
+  return createGLTFLoader();
+}
 var MODEL_TEXTURE_SLOTS = ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "lightMap", "displacementMap", "alphaMap"];
 function isTextureBad(tex) {
   if (!tex) return false;
@@ -148,7 +151,7 @@ function createVanScene(container, options = {}) {
   });
   const scene = new Scene2();
   const camera = new PerspectiveCamera2(34, 1, 0.1, 100);
-  const loader = new GLTFLoader();
+  const loader = createGltfLoader();
   const modelUrl = options.modelUrl || VAN_MODEL_URL;
   const morphTargetName = options.morphTargetName || "Key 1";
   const canvas = renderer.domElement;
@@ -2996,10 +2999,13 @@ function createMoonIconScene(container, options = {}) {
   const renderer = new WebGLRenderer({ antialias: true, alpha: true });
   const scene = new Scene2();
   const camera = new PerspectiveCamera2(30, 1, 0.1, 100);
-  const loader = new GLTFLoader();
+  const loader = createGltfLoader();
   const root = new Group2();
   let destroyed = false;
   let frameId = 0;
+  let isDocumentVisible = document.visibilityState !== "hidden";
+  let isCardVisible = true;
+  let lastRenderedMs = 0;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = SRGBColorSpace2;
   container.innerHTML = "";
@@ -3071,6 +3077,17 @@ function createMoonIconScene(container, options = {}) {
   }
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(container);
+  const onDocumentVisibilityChange = () => {
+    isDocumentVisible = document.visibilityState !== "hidden";
+  };
+  document.addEventListener("visibilitychange", onDocumentVisibilityChange);
+  let visibilityObserver = null;
+  if (typeof IntersectionObserver !== "undefined") {
+    visibilityObserver = new IntersectionObserver((entries) => {
+      isCardVisible = entries[0]?.isIntersecting !== false;
+    }, { threshold: 0.01 });
+    visibilityObserver.observe(container);
+  }
   resize();
   setLightFromAzimuthElevation(
     options.initialMoonAzimuthDegrees,
@@ -3079,10 +3096,12 @@ function createMoonIconScene(container, options = {}) {
   loadMoon().catch((error) => {
     console.error("Failed to load moon icon scene", error);
   });
-  function render() {
+  function render(nowMs = performance.now()) {
     if (destroyed) return;
     frameId = requestAnimationFrame(render);
-    const t = performance.now() * 1e-3;
+    if (!isDocumentVisible || !isCardVisible || nowMs - lastRenderedMs < 1000 / 30) return;
+    lastRenderedMs = nowMs;
+    const t = nowMs * 1e-3;
     root.rotation.y = t * Math.PI * 2 * 0.012;
     renderer.render(scene, camera);
   }
@@ -3093,6 +3112,8 @@ function createMoonIconScene(container, options = {}) {
       destroyed = true;
       cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
+      visibilityObserver?.disconnect?.();
+      document.removeEventListener("visibilitychange", onDocumentVisibilityChange);
       clearRoot();
       renderer.dispose();
       container.innerHTML = "";
@@ -3147,6 +3168,7 @@ var DEFAULT_CONFIG = {
   lower_grill: "",
   starlink_card: null,
   moon_entity: "",
+  water_heater_entity: "",
   weather_entity: "",
   inside_temp_entity: "",
   media_player_entity: "",
@@ -4293,9 +4315,12 @@ var VanPowerCard = class extends HTMLElement {
   updateMoonDisplay() {
     const panel = this.shadowRoot?.getElementById("moon-panel");
     const labelNode = this.shadowRoot?.getElementById("moon-label");
+    const waterTemperatureNode = this.shadowRoot?.getElementById("water-heater-temperature");
+    const waterTargetNode = this.shadowRoot?.getElementById("water-heater-target");
     const isNight = this._scene?.isNight?.() ?? this._scene?.isNightMode?.() ?? false;
     const moonPhase = this.getMoonPhaseState();
     const moonLabel = moonPhase ? this.getMoonPhaseLabel() : "";
+    const waterHeater = this.getWaterHeaterDisplay();
     const card = this.shadowRoot?.getElementById("dynamic-card");
     const stage = this.shadowRoot?.querySelector(".stage");
     card?.classList.toggle("is-night", isNight);
@@ -4303,10 +4328,32 @@ var VanPowerCard = class extends HTMLElement {
     const rawIcon = this.getWeatherRawIcon();
     this.applyDayWeatherBackground(this.resolveWeatherVisual(rawIcon)?.condition || rawIcon || "sunny");
     if (!panel) return;
-    panel.classList.toggle("is-hidden", !(isNight && moonPhase));
+    panel.classList.toggle("is-water-heating", waterHeater.isHeating);
+    panel.classList.toggle("is-hidden", !waterHeater.isHeating && !(isNight && moonPhase));
     if (labelNode) {
       labelNode.textContent = moonLabel;
     }
+    if (waterTemperatureNode) {
+      waterTemperatureNode.innerHTML = waterHeater.currentText;
+    }
+    if (waterTargetNode) {
+      waterTargetNode.textContent = waterHeater.targetText;
+    }
+  }
+  getWaterHeaterDisplay() {
+    const entityId = String(this._config.water_heater_entity || "").trim();
+    const entity = entityId ? this.lookup(entityId) : null;
+    const state = String(entity?.state || entity?.attributes?.operation_mode || "").trim().toLowerCase();
+    const isHeating = state === "gas";
+    const current = Number(entity?.attributes?.current_temperature);
+    const target = Number(entity?.attributes?.temperature);
+    const unit = String(this._hass?.config?.unit_system?.temperature || "°C");
+    const formatTemperature = (value) => Number.isFinite(value) ? value.toLocaleString([], { maximumFractionDigits: 1 }) : "--";
+    return {
+      isHeating,
+      currentText: `${formatTemperature(current)}<span>${unit}</span>`,
+      targetText: Number.isFinite(target) ? `GAS · TARGET ${formatTemperature(target)}${unit}` : "GAS WATER HEATING"
+    };
   }
   getMoonPhaseState() {
     const moonEntityId = String(this._config.moon_entity || "").trim();
@@ -4669,6 +4716,54 @@ var VanPowerCard = class extends HTMLElement {
             height:100%;
             display:block;
           }
+          .water-heater-display{
+            display:none;
+            width:100%;
+            height:100%;
+            border:1px solid rgba(111, 205, 255, 0.3);
+            border-radius:50%;
+            background:radial-gradient(circle at 50% 42%, rgba(22, 74, 103, 0.8), rgba(7, 20, 32, 0.88) 68%, rgba(3, 10, 17, 0.94));
+            box-shadow:0 0 42px rgba(47, 171, 235, 0.18), inset 0 0 30px rgba(75, 190, 246, 0.08);
+            color:#f3fbff;
+            align-items:center;
+            justify-content:center;
+            flex-direction:column;
+            text-align:center;
+            text-shadow:0 2px 16px rgba(0, 0, 0, 0.72);
+          }
+          .moon-panel.is-water-heating .moon-label,
+          .moon-panel.is-water-heating .moon-icon{
+            display:none;
+          }
+          .moon-panel.is-water-heating .water-heater-display{
+            display:flex;
+          }
+          .water-heater-heading{
+            color:rgba(184, 226, 248, 0.78);
+            font:700 12px/1 Inter, "Rajdhani", "Segoe UI", sans-serif;
+            letter-spacing:0.16em;
+            text-transform:uppercase;
+            margin-bottom:10px;
+          }
+          .water-heater-temperature{
+            font:700 68px/0.92 Inter, "Rajdhani", "Segoe UI", sans-serif;
+            letter-spacing:-0.06em;
+          }
+          .water-heater-temperature span{
+            display:inline-block;
+            margin-left:5px;
+            color:rgba(211, 239, 253, 0.82);
+            font-size:27px;
+            letter-spacing:-0.02em;
+            vertical-align:top;
+            transform:translateY(7px);
+          }
+          .water-heater-target{
+            color:rgba(184, 226, 248, 0.72);
+            font:700 11px/1.2 Inter, "Rajdhani", "Segoe UI", sans-serif;
+            letter-spacing:0.1em;
+            margin-top:14px;
+          }
           .starlink-panel{
             position:absolute;
             left:14px;
@@ -4991,6 +5086,11 @@ var VanPowerCard = class extends HTMLElement {
               <div class="moon-panel is-hidden" id="moon-panel">
                 <div class="moon-label" id="moon-label"></div>
                 <div class="moon-icon" id="moon-icon"></div>
+                <div class="water-heater-display" id="water-heater-display">
+                  <div class="water-heater-heading">Water heating</div>
+                  <div class="water-heater-temperature" id="water-heater-temperature">--<span>°C</span></div>
+                  <div class="water-heater-target" id="water-heater-target">GAS WATER HEATING</div>
+                </div>
               </div>
               <div class="starlink-panel is-hidden" id="starlink-panel">
                 <button class="starlink-close" id="starlink-close" type="button" aria-label="Close Starlink panel">\u00D7</button>
@@ -5185,6 +5285,7 @@ var EDITOR_FIELD_GROUPS = [
     fields: [
       { key: "sun_entity", label: "Sun Entity (next_dawn/next_dusk)", type: "entity", includeDomains: ["sun"] },
       { key: "moon_entity", label: "Moon Phase Entity", type: "entity", includeDomains: ["sensor"] },
+      { key: "water_heater_entity", label: "Water Heater Entity", type: "entity", includeDomains: ["water_heater"] },
       { key: "location_entity", label: "Location Entity", type: "entity", includeDomains: ["device_tracker", "person", "zone", "sensor"] },
       { key: "latitude_attribute", label: "Latitude Attribute", type: "text" },
       { key: "longitude_attribute", label: "Longitude Attribute", type: "text" },
