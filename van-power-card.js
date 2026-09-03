@@ -4352,7 +4352,7 @@ var VanPowerCard = class extends HTMLElement {
     return {
       isHeating,
       currentText: `${formatTemperature(current)}<span>${unit}</span>`,
-      targetText: Number.isFinite(target) ? `GAS · TARGET ${formatTemperature(target)}${unit}` : "GAS WATER HEATING"
+      targetText: Number.isFinite(target) ? `TARGET ${formatTemperature(target)}${unit}` : "WATER HEATING"
     };
   }
   getMoonPhaseState() {
@@ -5089,7 +5089,7 @@ var VanPowerCard = class extends HTMLElement {
                 <div class="water-heater-display" id="water-heater-display">
                   <div class="water-heater-heading">Water heating</div>
                   <div class="water-heater-temperature" id="water-heater-temperature">--<span>°C</span></div>
-                  <div class="water-heater-target" id="water-heater-target">GAS WATER HEATING</div>
+                  <div class="water-heater-target" id="water-heater-target">WATER HEATING</div>
                 </div>
               </div>
               <div class="starlink-panel is-hidden" id="starlink-panel">
