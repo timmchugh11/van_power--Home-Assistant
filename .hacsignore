@@ -5,6 +5,5 @@ node_modules/
 scripts/
 src/
 package-lock.json
-van-power-card-deps.js
 ground/*.png
 ground/*.jpg

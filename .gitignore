@@ -1,3 +1,19 @@
+# Dependencies
 node_modules/
+
+# Model optimisation intermediates
 van.optimized.glb
 van.preserved.glb
+
+# Local test builds (deployed to Home Assistant, not committed)
+*.dev.js
+
+# Backups and logs
+**/*.bak
+backup/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
